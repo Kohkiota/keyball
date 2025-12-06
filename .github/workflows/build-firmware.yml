@@ -23,7 +23,8 @@ jobs:
 
     runs-on: ubuntu-22.04
     container:
-      image: ghcr.io/qmk/qmk_cli:latest
+      # image: ghcr.io/qmk/qmk_cli:latest
+      image: ghcr.io/qmk/qmk_cli@sha256:16c4916e95b99bf88d27b15aec8db409ee17265d1710287fde248c6666508966
 
     steps:
 
@@ -33,11 +34,35 @@ jobs:
     - name: Checkout qmk_firmware
       uses: ./.github/actions/checkout-qmk_firmware
 
+    - name: Install Python dependencies
+      run: |
+        python3 -m pip install --break-system-packages --upgrade pip
+        python3 -m pip install --break-system-packages appdirs
+        python3 -m pip install --break-system-packages -r __qmk__/requirements.txt
+
+    - name: Patch QMK for Python 3.14 (ast.Num)
+      run: |
+        python3 - << 'EOF'
+        from pathlib import Path
+
+        math_py = Path("__qmk__/lib/python/qmk/math.py")
+        text = math_py.read_text()
+
+        if "ast.Num" in text and "Python 3.14 compatibility" not in text:
+            new = text.replace(
+                "import ast\n",
+                "import ast\n\n"
+                "# Python 3.14 compatibility: ast.Num was removed; "
+                "alias it to ast.Constant so QMK math.compute works.\n"
+                "if hasattr(ast, 'Constant') and not hasattr(ast, 'Num'):\n"
+                "    ast.Num = ast.Constant\n\n",
+                1,
+            )
+            math_py.write_text(new)
+        EOF
+
     - name: Install a link to own source
       run: ln -s $(pwd)/qmk_firmware/keyboards/keyball __qmk__/keyboards/keyball
-
-    - name: Install missing python modules
-      run: /usr/bin/python3 -m pip install -r __qmk__/requirements.txt
 
     - name: Compile and link
       run: qmk compile -j 4 -kb keyball/${{ inputs.keyboard }} -km ${{ inputs.keymap }}
