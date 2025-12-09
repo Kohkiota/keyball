@@ -59,6 +59,11 @@ layer_state_t layer_state_set_user(layer_state_t state) {
     return state;
 }
 
+void keyboard_post_init_user(void) {
+    // スクロールスナップを必ず Free に初期化する（縦ロック防止）
+    keyball_set_scrollsnap_mode(KEYBALL_SCROLLSNAP_MODE_FREE);
+}
+
 #ifdef OLED_ENABLE
 
 #    include "lib/oledkit/oledkit.h"
