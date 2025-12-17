@@ -40,6 +40,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #define DYNAMIC_KEYMAP_LAYER_COUNT 6
 #define TAPPING_TERM 145
-#define HOLD_ON_OTHER_KEY_PRESS
+
+// ホールド後でも他キー入力が無ければタップに戻す
 #define RETRO_TAPPING
+
+// 他のキーが押された瞬間ホールド
 // #define PERMISSIVE_HOLD
+
+// 他のキーが押されている状態で離した時ホールド
+// #define HOLD_ON_OTHER_KEY_PRESS
