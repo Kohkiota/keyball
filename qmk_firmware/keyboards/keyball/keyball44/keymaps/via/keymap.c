@@ -17,8 +17,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #include QMK_KEYBOARD_H
-
 #include "quantum.h"
+
+#ifdef POINTING_DEVICE_ENABLE
+#    include "pointing_device.h"
+#endif
 
 // clang-format off
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
@@ -74,3 +77,20 @@ void oledkit_render_info_user(void) {
     keyball_oled_render_layerinfo();
 }
 #endif
+
+// スリープ復帰、再起動時のスクロール不安定問題の対処
+void suspend_wakeup_init_user(void) {
+    // USB / センサー安定待ち（復帰直後対策）
+    wait_ms(200);
+
+    // pointing device（Keyball）の再初期化
+#ifdef POINTING_DEVICE_ENABLE
+    pointing_device_init();
+#endif
+
+    // 念のためスクロールスナップも初期化（縦スクロール死対策）
+    keyball_set_scrollsnap_mode(KEYBALL_SCROLLSNAP_MODE_FREE);
+
+    // レイヤー状態に応じてスクロールモードを再同期
+    layer_state_set_user(layer_state);
+}
