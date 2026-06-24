@@ -62,6 +62,38 @@ layer_state_t layer_state_set_user(layer_state_t state) {
     return state;
 }
 
+#ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
+// SCRL_TO（Kb 6）を横取りして、スクロールトグルと AML（Auto Mouse Layer）の
+// レイヤー固定を連動させる。
+//   スクロールON  → auto_mouse_toggle() でレイヤーを固定し、タイムアウト解除されないようにする
+//   スクロールOFF → 固定を解除し、auto_mouse_layer_off() で通常のタイムアウト復帰へ戻す
+// 状態ズレ防止のため、get_auto_mouse_toggle() で現在状態を見てから切り替える。
+bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+    if (keycode == SCRL_TO && record->event.pressed) {
+        bool next = !keyball_get_scroll_mode();
+
+        keyball_set_scroll_mode(next);
+
+        if (next) {
+            // スクロールON：レイヤー固定（未固定なら固定する）
+            if (!get_auto_mouse_toggle()) {
+                auto_mouse_toggle();
+            }
+        } else {
+            // スクロールOFF：固定を解除（固定中なら解除する）してレイヤーを下ろす
+            if (get_auto_mouse_toggle()) {
+                auto_mouse_toggle();
+            }
+            auto_mouse_layer_off();
+        }
+
+        return false; // Keyball標準の SCRL_TO 処理には渡さない
+    }
+
+    return true;
+}
+#endif
+
 void keyboard_post_init_user(void) {
     // スクロールスナップを必ず Free に初期化する（縦ロック防止）
     keyball_set_scrollsnap_mode(KEYBALL_SCROLLSNAP_MODE_FREE);
