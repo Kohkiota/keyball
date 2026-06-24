@@ -97,6 +97,11 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
 void keyboard_post_init_user(void) {
     // スクロールスナップを必ず Free に初期化する（縦ロック防止）
     keyball_set_scrollsnap_mode(KEYBALL_SCROLLSNAP_MODE_FREE);
+
+#ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
+    // 起動時に AML（Auto Mouse Layer）を必ず有効化する
+    set_auto_mouse_enable(true);
+#endif
 }
 
 #ifdef OLED_ENABLE
