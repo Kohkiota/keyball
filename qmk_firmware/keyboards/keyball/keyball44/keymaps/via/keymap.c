@@ -99,8 +99,8 @@ void keyboard_post_init_user(void) {
     keyball_set_scrollsnap_mode(KEYBALL_SCROLLSNAP_MODE_FREE);
 
 #ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
-    // 起動時は AML（Auto Mouse Layer）を無効（OFF）にする
-    set_auto_mouse_enable(false);
+    // 起動時に AML（Auto Mouse Layer）を必ず有効化する
+    set_auto_mouse_enable(true);
 #endif
 }
 
