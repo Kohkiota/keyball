@@ -8,6 +8,12 @@ on:
         default: '0.34.5'
         type: string
         required: false
+      # getreuer/qmk-modules is pinned to an exact commit on purpose:
+      # never track main/latest.
+      qmk_modules_version:
+        default: '8c55ac1c5d547d1ff324ae2834b26f2075222c97'
+        type: string
+        required: false
       keyboard:
         type: string
         required: true
@@ -36,11 +42,22 @@ jobs:
       with:
         version: ${{ inputs.qmk_version }}
 
+    - name: Checkout community modules (getreuer)
+      uses: actions/checkout@v4
+      with:
+        repository: getreuer/qmk-modules
+        ref: ${{ inputs.qmk_modules_version }}
+        path: __qmk__/modules/getreuer
+
     - name: Install Python dependencies
       run: |
         python3 -m pip install --break-system-packages --upgrade pip
         python3 -m pip install --break-system-packages appdirs
         python3 -m pip install --break-system-packages -r __qmk__/requirements.txt
+        # The pinned container image ships an old qmk_cli which calls
+        # milc.set_metadata(); that was removed in milc 2.x, which QMK's
+        # requirements.txt now pulls in. Upgrade the CLI to match.
+        python3 -m pip install --break-system-packages --upgrade qmk
 
     - name: Patch QMK for Python 3.14 (ast.Num)
       run: |

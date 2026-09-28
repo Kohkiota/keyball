@@ -39,6 +39,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define AUTO_MOUSE_DEFAULT_LAYER 1
 
 #define DYNAMIC_KEYMAP_LAYER_COUNT 6
+
+//////////////////////////////////////////////////////////////////////////////
+// Cyclotab (getreuer/cyclotab community module) — Alt+Tab swapper
+//
+// Triggered by A(KC_TAB) (next window) and S(A(KC_TAB)) (previous window),
+// assigned from Remap / VIA.  Alt stays held after the key is released so the
+// taps can be chained, and is released after this timeout (milliseconds).
+//
+// <<< Cyclotab timeout setting >>>
+#define CYCLOTAB_TIMEOUT 2000
 #define TAPPING_TERM 145
 
 // ホールド後でも他キー入力が無ければタップに戻す
