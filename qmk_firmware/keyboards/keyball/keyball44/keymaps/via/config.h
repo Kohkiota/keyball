@@ -57,9 +57,17 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //////////////////////////////////////////////////////////////////////////////
 // Combos — mouse buttons from the home row (keymap.c)
 //
-// Only recognised on layer 0, so the number / symbol / setting layers keep
-// their normal behaviour.  Both keys must be pressed within COMBO_TERM
-// milliseconds; keep it short so ordinary fast typing is not caught.
+// COMBO_ONLY_FROM_LAYER does NOT restrict combos to layer 0.  It makes
+// process_combo() resolve the pressed physical key through
+// keymap_key_to_keycode(0, key) on every event (process_combo.c:579), with no
+// layer gate anywhere in the function.  So the combos fire from EVERY layer --
+// AML, the number/symbol layer, the setting layer -- as long as the physical
+// keys are the ones holding J/K/L/S/D/F on layer 0.  Remapping layer 0 in
+// Remap/VIA moves the combos with it, since the lookup goes through the
+// dynamic keymap.
+//
+// Both keys must be pressed within COMBO_TERM milliseconds; keep it short so
+// ordinary fast typing is not caught.
 //
 // <<< Combo term setting >>>
 #define COMBO_TERM 30

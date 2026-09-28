@@ -148,6 +148,34 @@ QMK 標準 Combo をそのまま使う（`COMBO_ENABLE = yes`）。
 - `COMBO_TERM 30`, `COMBO_ONLY_FROM_LAYER 0`
 - 左 `KC_BTN1` = J+K / D+F、右 `KC_BTN2` = K+L / S+D、中 `KC_BTN3` = J+L / S+F
 
+#### `COMBO_ONLY_FROM_LAYER 0` は「レイヤー 0 でしか効かない」ではない
+
+名前に反して**レイヤーを制限する設定ではない**。`process_combo.c` の該当箇所は
+
+```c
+#ifdef COMBO_ONLY_FROM_LAYER
+    /* Only check keycodes from one layer. */
+    keycode = keymap_key_to_keycode(COMBO_ONLY_FROM_LAYER, record->event.key);
+#else
+    ... combo_ref_from_layer(get_highest_layer(...)) ...
+#endif
+```
+
+だけで、`process_combo()` 全体を通して**レイヤーを見た分岐は存在しない**
+（`COMBO_ONLY_FROM_LAYER` の出現箇所は `#ifndef`(32行) / `#ifdef`(577行) /
+この書き換え(579行) の 3 つのみ）。つまり「今どのレイヤーにいても、押された
+物理キーをレイヤー 0 のキーコードに読み替えて Combo 判定する」機能であり、
+**全レイヤーで Combo が有効**になる。
+
+ビルド済みバイナリでも確認済み: `keymap_key_to_keycode` の呼び出しのうち
+1 箇所が `ldi r24, 0x00`（レイヤー = 即値 0）で呼んでおり、そこへ分岐して
+くる条件は `QK_COMBO_ON/OFF/TOGGLE` のキーコード比較
+（`cpi 0x51/0x52` + `sbci 0x7C`）の 3 つだけ。`get_highest_layer` や
+`layer_state` の読み出しは経路上に無い。
+
+レイヤー 0 を Remap で並べ替えると Combo もそれに追従する
+（`keymap_key_to_keycode` は VIA の dynamic keymap を引くため）。
+
 軽量自作 Combo（176 byte、1798 byte 節約）も試作して実測したが**不採用**。
 レイヤー 0 基準で全レイヤーから使う設計にすると、対象 6 物理位置に
 全レイヤーで 30ms の出力保留が入り（特に AML の左クリックが 30ms 遅れる）、
