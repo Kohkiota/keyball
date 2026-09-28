@@ -49,6 +49,18 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
 // <<< Cyclotab timeout setting >>>
 #define CYCLOTAB_TIMEOUT 2000
+
+//////////////////////////////////////////////////////////////////////////////
+// Win + arrow swapper (keymap.c)
+//
+// Triggered by LGUI(KC_LEFT) / LGUI(KC_RGHT) / LGUI(KC_UP) / LGUI(KC_DOWN),
+// assigned from Remap / VIA.  Win stays held after the key is released so the
+// taps can be chained, and is released after this timeout (milliseconds) or as
+// soon as any other key is pressed.
+//
+// <<< Win swapper timeout setting >>>
+#define WINSWAP_TIMEOUT 2000
+
 #define TAPPING_TERM 145
 
 // ホールド後でも他キー入力が無ければタップに戻す

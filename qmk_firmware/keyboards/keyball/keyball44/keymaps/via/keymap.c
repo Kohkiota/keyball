@@ -62,13 +62,62 @@ layer_state_t layer_state_set_user(layer_state_t state) {
     return state;
 }
 
-#ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
-// SCRL_TO（Kb 6）を横取りして、スクロールトグルと AML（Auto Mouse Layer）の
-// レイヤー固定を連動させる。
-//   スクロールON  → auto_mouse_toggle() でレイヤーを固定し、タイムアウト解除されないようにする
-//   スクロールOFF → 固定を解除し、auto_mouse_layer_off() で通常のタイムアウト復帰へ戻す
-// 状態ズレ防止のため、get_auto_mouse_toggle() で現在状態を見てから切り替える。
+// Win + 矢印 Swapper（Cyclotab とは独立した実装）
+//
+// LGUI(KC_LEFT/RGHT/UP/DOWN) を押すと Win を押しっぱなしにしたまま矢印だけを
+// 送る。Win は、最後にキーを離してから WINSWAP_TIMEOUT ミリ秒が経過するか、
+// 他のキーが押されるまで保持されるので、タスクビューや仮想デスクトップの
+// 切り替えを連続して行える。
+static bool     winswap_active = false;
+static uint16_t winswap_timer  = 0; // 0 = 計測停止（キーを押している間）
+
+static void winswap_release(void) {
+    if (winswap_active) {
+        unregister_mods(MOD_BIT(KC_LGUI));
+        winswap_active = false;
+    }
+    winswap_timer = 0;
+}
+
+void housekeeping_task_user(void) {
+    if (winswap_timer && timer_elapsed(winswap_timer) > WINSWAP_TIMEOUT) {
+        winswap_release();
+    }
+}
+
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+    // Win + 矢印 Swapper は既存処理より手前で判定する
+    switch (keycode) {
+        case LGUI(KC_LEFT):
+        case LGUI(KC_RGHT):
+        case LGUI(KC_UP):
+        case LGUI(KC_DOWN):
+            if (record->event.pressed) {
+                if (!winswap_active) {
+                    winswap_active = true;
+                    register_mods(MOD_BIT(KC_LGUI));
+                }
+                winswap_timer = 0;        // 押している間はタイムアウトを止める
+                tap_code(keycode & 0xFF); // Win は保持したまま矢印だけ送る
+            } else {
+                winswap_timer = timer_read() | 1; // 離したらタイムアウト計測開始
+            }
+            return false;
+
+        default:
+            // Swapper 以外のキーを押したら Win を解放する（キー自体は通す）
+            if (record->event.pressed) {
+                winswap_release();
+            }
+            break;
+    }
+
+#ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
+    // SCRL_TO（Kb 6）を横取りして、スクロールトグルと AML（Auto Mouse Layer）の
+    // レイヤー固定を連動させる。
+    //   スクロールON  → auto_mouse_toggle() でレイヤーを固定し、タイムアウト解除されないようにする
+    //   スクロールOFF → 固定を解除し、auto_mouse_layer_off() で通常のタイムアウト復帰へ戻す
+    // 状態ズレ防止のため、get_auto_mouse_toggle() で現在状態を見てから切り替える。
     if (keycode == SCRL_TO && record->event.pressed) {
         bool next = !keyball_get_scroll_mode();
 
@@ -89,10 +138,10 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
 
         return false; // Keyball標準の SCRL_TO 処理には渡さない
     }
+#endif
 
     return true;
 }
-#endif
 
 void keyboard_post_init_user(void) {
     // スクロールスナップを必ず Free に初期化する（縦ロック防止）
