@@ -11,7 +11,9 @@ on:
     tags-ignore:
       - '*'
     branches:
-      - '*'
+      # '*' does not match branch names that contain a slash, so feature
+      # branches such as feature/xxx would never be built.
+      - '**'
 
   pull_request:
     paths:
