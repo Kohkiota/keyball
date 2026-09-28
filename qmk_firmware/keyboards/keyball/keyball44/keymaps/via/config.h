@@ -61,6 +61,17 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 // <<< Win swapper timeout setting >>>
 #define WINSWAP_TIMEOUT 2000
 
+//////////////////////////////////////////////////////////////////////////////
+// Combos — mouse buttons from the home row (keymap.c)
+//
+// Only recognised on layer 0, so the number / symbol / setting layers keep
+// their normal behaviour.  Both keys must be pressed within COMBO_TERM
+// milliseconds; keep it short so ordinary fast typing is not caught.
+//
+// <<< Combo term setting >>>
+#define COMBO_TERM 30
+#define COMBO_ONLY_FROM_LAYER 0
+
 #define TAPPING_TERM 145
 
 // ホールド後でも他キー入力が無ければタップに戻す

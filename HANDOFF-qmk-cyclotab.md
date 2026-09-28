@@ -63,84 +63,163 @@ QMK 0.34.5 の `requirements.txt` は `milc>=1.9.0` を要求し pip が milc 2.
 
 ---
 
-## 2. 【最重要】残っている問題: ROM サイズ
+## 2. ROM サイズ（決着済み）
 
-atmega32u4 の上限は **28672 bytes**。ローカル計測（avr-gcc 12.1.0）:
+atmega32u4 の上限は **28672 bytes**。ローカル実測（avr-gcc 12.1.0）:
 
 | 構成 | サイズ | 空き |
 |---|---|---|
-| main / QMK 0.22.14（現状バックアップ） | 27280 | 1392 |
-| QMK 0.34.5 のみ | 27348 | **1324** |
-| QMK 0.34.5 + Cyclotab | 28212 | **460** |
+| main / QMK 0.22.14 | 27280 | 1392 |
+| QMK 0.34.5 のみ | 27348 | 1324 |
+| + Cyclotab | 28212 | 460 |
+| + Win Swapper | 28306 | 366 |
+| + Combo | 30268 | **-1596** |
+| + AML | 30388 | **-1716** |
+| **上記から RGBLIGHT_ENABLE = no**（採用） | **27578** | **1094** |
 
-**QMK 更新自体のコストは +68 byte しかない**（つまり古い QMK に戻しても解決しない）。
-問題は元々 main の時点で 95% 使用済みだったこと。
+Combo だけが 1962 byte を消費する。エンジン本体のコストなので、
+**コンボの数を減らしても減らない**（6 個 → 3 個で 18 byte しか減らなかった）。
 
-Cyclotab で 864 byte 消費し、残り 460 byte。
-ここに Win Swapper（推定 200〜400 byte）と Combo（推定 700〜1200 byte）は
-**入らない見込み**。
+### 削減候補の実測結果（推定ではなく実測）
 
-### 次セッションで最初にやること
+| 候補 | 節約 | 判定 |
+|---|---|---|
+| `RGBLIGHT_ENABLE = no` | **2812 byte** | ✅ 採用。全機能が入り 1094 byte 空く |
+| Combo を 6 個 → 3 個 | 18 byte | ほぼ無意味 |
+| `OLED_FONT_END` 縮小 | **0 byte** | 無意味。logofont.c の配列は範囲に関係なく丸ごとリンクされる |
+| `NO_ACTION_ONESHOT` | 738 byte | 単体では不足 |
+| `LAYER_STATE_8BIT` | 0 byte | 無意味 |
 
-1. Win Swapper と Combo を実装して実測する（下記ローカルビルド環境で数十秒）。
-2. 溢れた場合、機能を削らずに済む手段は無いので、
-   **どれを削るかはユーザーに選んでもらう**。候補:
-   - `keymaps/via/rules.mk` の `RGBLIGHT_ENABLE = yes` を `no` に（約 2〜3KB 節約 / 底面 LED が消灯）
-   - OLED フォント範囲 `OLED_FONT_END` の縮小（OLED 表示が変わる）
-   - Combo 数を減らす（例: J+K / K+L / J+L の 3 つだけにする）
-   - `#define NO_ACTION_ONESHOT`（Remap で OSM を割り当てられなくなる）
+LTO・`BOOTMAGIC`/`EXTRAKEY`/`CONSOLE`/`COMMAND`/`NKRO`/`MOUSEKEY`/
+`SPACE_CADET`/`GRAVE_ESC`/`MAGIC` の無効化は `keyball44/rules.mk` で
+**既にすべて適用済み**。これ以上のタダの削減余地は無い。
 
-   ※ スクロール設定・AML ルールは変更禁止なのでここからは削らないこと。
+採用した変更は `keymaps/via/rules.mk` の `RGBLIGHT_ENABLE = no` のみ。
+代償は底面 RGB LED が消灯し、レイヤー 3 の `RGB_*` キーが無反応になること
+（OLED は従来どおり動作）。スクロール設定・AML ルールには触れていない。
 
 ---
 
-## 3. 未実装（Step 3 以降）
-
-作業順は当初指示どおり: Win Swapper → build → Combo → build → AML → build。
+## 3. Step 3〜5（実装済み）
 
 ### Step 3: Win + 矢印 Swapper（`keyball44/keymaps/via/keymap.c`）
 
-独立実装。Cyclotab には混ぜない。設計は確定済み:
+要件は **`G(KC_LEFT/RGHT/UP/DOWN)` の 4 キーを自由に押し替えても GUI を
+保持し続ける**こと（「最初だけ Win+矢印、あとは素の矢印」ではない）。
 
-- 対象 keycode: `LGUI(KC_LEFT)`, `LGUI(KC_RGHT)`, `LGUI(KC_UP)`, `LGUI(KC_DOWN)`
+#### stock Cyclotab で代用できないことの確認結果
+
+`modules/getreuer/cyclotab/cyclotab.c` を確認した結論: **構造上不可能**。
+
+1. セッション継続判定 `is_trigger_keycode()` は「現在の `active_key`」と
+   「`S(active_key)`」の 2 つとしか照合しない。`CYCLOTAB_KEYS` に 4 方向を
+   並べても、`G(KC_LEFT)` セッション中の `G(KC_RGHT)` は別キー扱いになる。
+2. 例外的に継続を許す `switch` の case は**素の** `KC_LEFT/RGHT/UP/DOWN`。
+   `G(KC_RGHT)` = `0x084F` は `KC_RGHT` = `0x004F` と一致しない。
+3. 結果、方向を変えた最初の 1 打が `release_active()` で GUI を解放し、
+   さらに `return !record->event.pressed` で握り潰される。
+
+拡張フックは weak な `cyclotab_timeout()` だけで、継続条件を差し替える手段は
+無い。CI は getreuer/qmk-modules を固定 commit から clone するので
+`cyclotab.c` 自体の改造も不可。
+
+→ **独立 Win Swapper を残す**（要件だけを満たす最小実装）。
+
+一方 `A(KC_TAB)` ↔ `S(A(KC_TAB))` の往復は上記 1. の `S(active_key)` 照合で
+成立するので、**タスク切り替えは stock Cyclotab のまま**で要件を満たす。
+
+#### 実装
+
+- 対象: `G(KC_LEFT)`, `G(KC_RGHT)`, `G(KC_UP)`, `G(KC_DOWN)` を 1 つの
+  case グループにまとめ、4 方向のどれに押し替えても `winswap_active` を
+  保ったまま GUI を握り続ける。
 - 押下時: 未保持なら `register_mods(MOD_BIT(KC_LGUI))`、
-  `tap_code(keycode & 0xFF)` で矢印だけ送る、`return false`
-- 離した時: `timer = timer_read() | 1` でタイムアウト計測開始（押している間は 0 で停止）
-- それ以外のキー: `unregister_mods(MOD_BIT(KC_LGUI))` して `return true`（キーは通す）
-- タイムアウト: `housekeeping_task_user()` で `timer_expired()` を判定
-  - **確認済み**: QMK 0.34.5 の `housekeeping_task()` は
-    `housekeeping_task_modules()` → `_kb()` → `_user()` を並列に呼ぶので、
-    keyball.c が `housekeeping_task_kb` を上書きしていても `_user` は呼ばれる。
-- `<<< Win swapper timeout setting >>>` コメント付きで `#define WINSWAP_TIMEOUT 2000`
-
-既存 `process_record_user`（SCRL_TO の横取り）の**手前**に swapper 判定を置く。
+  `tap_code(keycode & 0xFF)` で矢印だけ送り `return false`。
+- 離した時: `winswap_timer = timer_read() | 1` でタイムアウト計測開始
+  （押している間は 0 で停止）。
+- 対象外のキー押下: `winswap_release()` して `return true`（キーは通す）。
+- タイムアウト: `housekeeping_task_user()` で判定。QMK 0.34.5 の
+  `housekeeping_task()` は `_modules()` → `_kb()` → `_user()` を順に呼ぶので、
+  keyball.c が `housekeeping_task_kb` を持っていても `_user` は呼ばれる（確認済み）。
+- `<<< Win swapper timeout setting >>>` 付きで `#define WINSWAP_TIMEOUT 2000`
 
 ### Step 4: Combo
 
 - `keymaps/via/rules.mk`: `COMBO_ENABLE = yes`
 - `keymaps/via/config.h`: `#define COMBO_TERM 30`, `#define COMBO_ONLY_FROM_LAYER 0`
-  （`COMBO_ONLY_FROM_LAYER` は QMK 0.34.5 の `process_combo.c:577` に存在確認済み）
-- `keymap.c`: `COMBO_LEN` と `combo_t key_combos[]` を定義
-  - 左クリック `MS_BTN1`: J+K, D+F
-  - 右クリック `MS_BTN2`: K+L, S+D
-  - 中クリック `MS_BTN3`: J+L, S+F
-  - ※ `KC_BTN1` は compat header 経由で `MS_BTN1` になるのでどちらでも可
+- `keymap.c`: 左 `KC_BTN1` = J+K / D+F、右 `KC_BTN2` = K+L / S+D、
+  中 `KC_BTN3` = J+L / S+F
 
 ### Step 5: AML
 
-- `keyboard_post_init_user()` に `set_auto_mouse_timeout(10000);` を追加。
-  - **確認済み**: `keyball.c` の `keyboard_post_init_kb()` が EEPROM から
-    `set_auto_mouse_timeout()` した**後**に `keyboard_post_init_user()` を呼ぶので、
-    user 側の上書きが最後に効く。Keyball 側 EEPROM 実装の改造は不要。
-  - 注意（報告事項）: layer 3 の `AML_I50`/`AML_D50` を押すと keyball 側の
+- `keyboard_post_init_user()` に `set_auto_mouse_timeout(10000);`
+  - `keyball.c` の `keyboard_post_init_kb()` が EEPROM 値で
+    `set_auto_mouse_timeout()` した**後**に `_user()` を呼ぶので上書きが効く。
+  - 注意: レイヤー 3 の `AML_I50`/`AML_D50` を押すと keyball 側の
     `AML_TIMEOUT_MAX = 1000` に丸められる。再起動すれば 10000 に戻る。
-- AML 維持対象は `is_mouse_record_user()` で実装
-  （keyball.c の `is_mouse_record_kb()` が呼んでくれる）。
-  対象: `A(KC_TAB)`, `S(A(KC_TAB))`, `LGUI(KC_LEFT/RGHT/UP/DOWN)`,
-  `KC_LEFT/KC_RGHT/KC_UP/KC_DOWN`。
-  - 指示の「Left / Right / Up / Down」が素の矢印か Win+矢印かが曖昧だったため
-    両方入れる方針。不要ならユーザー確認のうえ削る。
-  - **それ以外のキーは絶対に追加しない。**
+
+#### 【重要】`is_mouse_record_user()` は使えない
+
+当初の計画では `is_mouse_record_user()` に対象キーを並べる予定だったが、
+**この 6 キーでは絶対に呼ばれない**ことが判明した。
+
+`quantum/pointing_device/pointing_device_auto_mouse.c` の
+`process_auto_mouse()` は switch の**先頭**で
+
+```c
+case KC_LEFT_CTRL ... KC_RIGHT_GUI:
+case QK_MODS ... QK_MODS_MAX:
+    break;
+```
+
+としている。`QK_MODS` の範囲は `0x0100`〜`0x1FFF` で、
+`A(KC_TAB)`=0x042B / `S(A(KC_TAB))`=0x062B / `G(KC_LEFT)`=0x0850 /
+`G(KC_RGHT)`=0x084F / `G(KC_UP)`=0x0852 / `G(KC_DOWN)`=0x0851 は
+**全部この範囲に入る**ので、`default:` の `is_mouse_record()` まで到達しない。
+（同ファイル内の `// QK_MODS goes to default` というコメントと
+doxygen の説明は実装と食い違っている。コードが正。）
+
+副作用として「押しても AML がリセットされない」こと自体は素の QMK で既に
+成立している。足りないのは **10 秒タイマーの更新**のほう。
+
+#### 採用した方式: セッション連動で `auto_mouse_keyevent()` を握る
+
+```c
+static bool aml_held = false;
+static void aml_hold(bool on) {
+    if (on != aml_held) { aml_held = on; auto_mouse_keyevent(on); }
+}
+// housekeeping_task_user() 内
+aml_hold(winswap_active || cyclotab_active_key() != KC_NO);
+```
+
+- `auto_mouse_keyevent(true)` は `mouse_key_tracker` を +1 する。
+  tracker が非 0 の間 `is_auto_mouse_active()` が true になり、
+  `pointing_device_task_auto_mouse()` が毎周期 `timer.active` を打ち直すので
+  **セッション中は 10 秒が減らず、解放時点から 10 秒が再スタート**する。
+- Cyclotab セッションも Win Swapper セッションも
+  `A(KC_TAB)` / `S(A(KC_TAB))` / `G(KC_LEFT/RGHT/UP/DOWN)` の 6 キーを
+  押した時にしか始まらないので、維持対象は実質この 6 キーだけになる。
+- **素の `KC_TAB` / 素の矢印には一切ルールを追加していない**
+  （従来どおり `auto_mouse_reset_trigger()` で AML をリセットする）。
+- increment / decrement を必ず 1 対 1 に保つため状態変化時のみ呼ぶ。
+  Cyclotab がキーイベントを握り潰しても tracker がずれない。
+- Cyclotab の状態は public getter `cyclotab_active_key()` で読む
+  （`#include "cyclotab.h"`）。
+
+### 既知の制限・副作用
+
+1. **Cyclotab セッション中の `G(矢印)` 初回打鍵が握り潰される。**
+   Cyclotab は module として `process_record_kb/user` より先に走り、
+   非対象キーを `release_active()` したうえで消費するため。Alt+Tab 直後
+   2 秒以内に Win+矢印を押した場合のみ発生し、もう一度押せば効く。
+   これは Cyclotab 本来の「他キーで選択を確定する」設計そのもの。
+   （逆方向の Win Swapper → Alt+Tab は正常に動く。）
+2. **AML が出ていない状態からこの 6 キーを押すと AML が点く。**
+   `auto_mouse_keyevent()` で tracker を握る以上避けられない。
+   レイヤー 1 は AML の対象レイヤーであると同時に `LT(1,KC_SPC)` の
+   レイヤーでもあるため、Space 長押しから Win+矢印を打つと、Space を
+   離した後もレイヤー 1 が 10 秒ほど残る。
 
 ---
 

@@ -56,18 +56,66 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 };
 // clang-format on
 
+#ifdef COMBO_ENABLE
+// ホームポジションからマウスボタンを押すためのコンボ。
+// 右手 J/K/L と左手 S/D/F の 2 セットを用意し、どちらでも同じボタンを出す。
+//   左クリック  : J+K, D+F
+//   右クリック  : K+L, S+D
+//   中クリック  : J+L, S+F
+enum combo_events {
+    CMB_JK_BTN1,
+    CMB_DF_BTN1,
+    CMB_KL_BTN2,
+    CMB_SD_BTN2,
+    CMB_JL_BTN3,
+    CMB_SF_BTN3,
+    COMBO_LENGTH,
+};
+uint16_t COMBO_LEN = COMBO_LENGTH;
+
+const uint16_t PROGMEM combo_jk[] = {KC_J, KC_K, COMBO_END};
+const uint16_t PROGMEM combo_df[] = {KC_D, KC_F, COMBO_END};
+const uint16_t PROGMEM combo_kl[] = {KC_K, KC_L, COMBO_END};
+const uint16_t PROGMEM combo_sd[] = {KC_S, KC_D, COMBO_END};
+const uint16_t PROGMEM combo_jl[] = {KC_J, KC_L, COMBO_END};
+const uint16_t PROGMEM combo_sf[] = {KC_S, KC_F, COMBO_END};
+
+combo_t key_combos[] = {
+    [CMB_JK_BTN1] = COMBO(combo_jk, KC_BTN1),
+    [CMB_DF_BTN1] = COMBO(combo_df, KC_BTN1),
+    [CMB_KL_BTN2] = COMBO(combo_kl, KC_BTN2),
+    [CMB_SD_BTN2] = COMBO(combo_sd, KC_BTN2),
+    [CMB_JL_BTN3] = COMBO(combo_jl, KC_BTN3),
+    [CMB_SF_BTN3] = COMBO(combo_sf, KC_BTN3),
+};
+#endif
+
 layer_state_t layer_state_set_user(layer_state_t state) {
     // Auto enable scroll mode when the highest layer is 3
     keyball_set_scroll_mode(get_highest_layer(state) == 3);
     return state;
 }
 
-// Win + 矢印 Swapper（Cyclotab とは独立した実装）
+//////////////////////////////////////////////////////////////////////////////
+// Win + 矢印 Swapper
 //
-// LGUI(KC_LEFT/RGHT/UP/DOWN) を押すと Win を押しっぱなしにしたまま矢印だけを
-// 送る。Win は、最後にキーを離してから WINSWAP_TIMEOUT ミリ秒が経過するか、
-// 他のキーが押されるまで保持されるので、タスクビューや仮想デスクトップの
-// 切り替えを連続して行える。
+// G(KC_LEFT/RGHT/UP/DOWN) の 4 キーを自由に押し替えても GUI を保持し続け、
+// Windows のウィンドウスナップを連続して行えるようにする。
+// GUI は、最後にキーを離してから WINSWAP_TIMEOUT ミリ秒が経過するか、
+// swapper 対象外のキーが押された時点で解放する。
+//
+// なぜ Cyclotab で代用できないか（stock cyclotab.c を確認済み）:
+//   1. セッション継続の判定 is_trigger_keycode() は「現在の active_key」と
+//      「S(active_key)」の 2 つとしか照合しない。CYCLOTAB_KEYS に 4 方向を
+//      並べても、G(KC_LEFT) セッション中の G(KC_RGHT) は別キー扱いになる。
+//   2. 例外的に継続を許す switch の case は素の KC_LEFT/RGHT/UP/DOWN であり、
+//      G(KC_RGHT)=0x084F は KC_RGHT=0x004F と一致しない。
+//   結果、方向を変えた最初の 1 打が release_active() で GUI を解放したうえ
+//   握り潰される（return !pressed）。4 方向の自由往復は構造上不可能。
+//   拡張フックは cyclotab_timeout() のみで、CI は getreuer/qmk-modules を
+//   固定 commit から clone するため cyclotab.c 自体の改造も不可。
+// A(KC_TAB) / S(A(KC_TAB)) の往復は上記 1. の S(active_key) で成立するので、
+// タスク切り替えは stock Cyclotab のまま使う。
 static bool     winswap_active = false;
 static uint16_t winswap_timer  = 0; // 0 = 計測停止（キーを押している間）
 
@@ -79,33 +127,72 @@ static void winswap_release(void) {
     winswap_timer = 0;
 }
 
+#ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
+#    include "cyclotab.h"
+
+// AML 維持
+//
+// QMK の process_auto_mouse() は switch の先頭で
+//   case QK_MODS ... QK_MODS_MAX: break;
+// としているため、A(KC_TAB) や G(KC_LEFT) のような修飾付きキーコードは
+// is_mouse_record_kb/user() まで到達しない（0x0100〜0x1FFF が QK_MODS）。
+// つまり is_mouse_record_user() にこの 6 キーを並べても呼ばれない。
+// 一方で「AML をリセットもしない」ので、解除されないこと自体は素の QMK で
+// 既に満たされている。足りないのは 10 秒タイマーの更新のほう。
+//
+// そこで auto_mouse_keyevent() で mouse_key_tracker を直接握る。
+// tracker が非 0 の間は is_auto_mouse_active() が true になり、
+// pointing_device_task_auto_mouse() が毎周期 timer.active を打ち直すため、
+// セッション中は 10 秒が減らず、解放した時点から 10 秒が再スタートする。
+//
+// 掴む条件は「Cyclotab セッション中」または「Win Swapper セッション中」。
+// どちらのセッションも A(KC_TAB)/S(A(KC_TAB))/G(KC_LEFT/RGHT/UP/DOWN) の
+// 6 キーを押した時にしか始まらないので、維持対象は実質この 6 キーだけになる。
+// 素の KC_TAB や素の矢印は対象外（従来どおり AML をリセットする）。
+//
+// increment / decrement は必ず 1 対 1 に保つ必要があるので、状態が変わった
+// 時だけ呼ぶ。Cyclotab がキーイベントを握り潰しても tracker はずれない。
+static bool aml_held = false;
+
+static void aml_hold(bool on) {
+    if (on != aml_held) {
+        aml_held = on;
+        auto_mouse_keyevent(on);
+    }
+}
+#endif
+
 void housekeeping_task_user(void) {
     if (winswap_timer && timer_elapsed(winswap_timer) > WINSWAP_TIMEOUT) {
         winswap_release();
     }
+#ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
+    aml_hold(winswap_active || cyclotab_active_key() != KC_NO);
+#endif
 }
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     // Win + 矢印 Swapper は既存処理より手前で判定する
     switch (keycode) {
-        case LGUI(KC_LEFT):
-        case LGUI(KC_RGHT):
-        case LGUI(KC_UP):
-        case LGUI(KC_DOWN):
+        case G(KC_LEFT):
+        case G(KC_RGHT):
+        case G(KC_UP):
+        case G(KC_DOWN):
             if (record->event.pressed) {
+                // 4 方向のどれに押し替えても GUI は握ったまま継続する
                 if (!winswap_active) {
                     winswap_active = true;
                     register_mods(MOD_BIT(KC_LGUI));
                 }
                 winswap_timer = 0;        // 押している間はタイムアウトを止める
-                tap_code(keycode & 0xFF); // Win は保持したまま矢印だけ送る
+                tap_code(keycode & 0xFF); // GUI は保持したまま矢印だけ送る
             } else {
                 winswap_timer = timer_read() | 1; // 離したらタイムアウト計測開始
             }
             return false;
 
         default:
-            // Swapper 以外のキーを押したら Win を解放する（キー自体は通す）
+            // Swapper 対象外のキーを押したら GUI を解放する（キー自体は通す）
             if (record->event.pressed) {
                 winswap_release();
             }
@@ -150,8 +237,18 @@ void keyboard_post_init_user(void) {
 #ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
     // 起動時に AML（Auto Mouse Layer）を必ず有効化する
     set_auto_mouse_enable(true);
+
+    // AML のタイムアウトを 10 秒にする。
+    // keyball.c の keyboard_post_init_kb() が EEPROM 値で
+    // set_auto_mouse_timeout() した「後」にこの関数が呼ばれるので、ここでの
+    // 上書きが最後に効く。
+    // 注意: レイヤー 3 の AML_I50 / AML_D50 を押すと keyball 側の上限
+    // （AML_TIMEOUT_MAX = 1000）に丸められる。再起動すれば 10 秒に戻る。
+    // <<< AML timeout setting >>>
+    set_auto_mouse_timeout(10000);
 #endif
 }
+
 
 #ifdef OLED_ENABLE
 
