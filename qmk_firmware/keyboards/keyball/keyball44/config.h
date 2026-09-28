@@ -30,6 +30,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 // Split parameters
 #define SOFT_SERIAL_PIN         D2
 #define SPLIT_HAND_MATRIX_GRID  F7, D4
+// QMK 0.34.5 flipped the default polarity of SPLIT_HAND_MATRIX_GRID.
+// 0.22.14 (split_util.c):  opt-in was SPLIT_HAND_MATRIX_GRID_LOW_IS_RIGHT,
+//                          so the default was  !peek_matrix_intersection()
+// 0.34.5  (split_util.c):  opt-in is  SPLIT_HAND_MATRIX_GRID_LOW_IS_LEFT,
+//                          so the default is    peek_matrix_intersection()
+// Defining nothing therefore inverted handedness across the upgrade.  This
+// restores the 0.22.14 behaviour explicitly.
+#define SPLIT_HAND_MATRIX_GRID_LOW_IS_LEFT
 #define SPLIT_USB_DETECT
 #ifdef OLED_ENABLE
 #    define SPLIT_OLED_ENABLE
