@@ -17,6 +17,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #pragma once
 
+#include "keyball_qmk_compat.h"
+
 //////////////////////////////////////////////////////////////////////////////
 // Configurations
 

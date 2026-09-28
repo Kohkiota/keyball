@@ -11,7 +11,9 @@ on:
     tags-ignore:
       - '*'
     branches:
-      - '*'
+      # '*' does not match branch names that contain a slash, so feature
+      # branches such as feature/xxx would never be built.
+      - '**'
 
   pull_request:
     paths:
@@ -43,7 +45,7 @@ jobs:
 
     uses: ./.github/workflows/build-firmware.yml
     with:
-      qmk_version: '0.22.14'
+      qmk_version: '0.34.5'
       keyboard:    ${{ matrix.keyboard }}
       keymap:      ${{ matrix.keymap }}
 
