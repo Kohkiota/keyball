@@ -125,7 +125,13 @@ layer_state_t layer_state_set_user(layer_state_t state) {
 //      走る。これを出し抜けるのは pre_process_record_user だけだが、
 //      そこで全キーを横取りするのは Cyclotab を通さないのと同じ。
 static uint8_t  swap_mods  = 0; // 保持中の mod（0 = セッション無し）
-static uint16_t swap_timer = 0; // 0 = 計測停止（キーを押している間）
+static uint16_t swap_timer = 0;
+// タイマー稼働フラグ。0 を「停止」の sentinel に兼用してはいけない。
+// timer_read() の戻り値そのものが 0 になりうるうえ、sentinel を避けようと
+// `timer_read() | 1` にすると偶数時刻のとき保存値が 1ms 未来になり、
+// timer_elapsed() = TIMER_DIFF_16(timer_read(), last) = (uint16_t)(a - b) が
+// 同じ 1ms 内で 65535 に回り込んで即 SWAP_TIMEOUT 超過と誤判定される。
+static bool swap_timer_running = false;
 
 static uint8_t swap_group(uint16_t keycode) {
     switch (keycode) {
@@ -146,7 +152,7 @@ static void swap_end(void) {
         unregister_mods(swap_mods);
         swap_mods = 0;
     }
-    swap_timer = 0;
+    swap_timer_running = false;
 }
 
 #ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
@@ -182,7 +188,7 @@ static void aml_hold(bool on) {
 #endif
 
 void housekeeping_task_user(void) {
-    if (swap_timer && timer_elapsed(swap_timer) > SWAP_TIMEOUT) {
+    if (swap_timer_running && timer_elapsed(swap_timer) > SWAP_TIMEOUT) {
         swap_end();
     }
 #ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
@@ -203,9 +209,11 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
                 register_mods(want);
                 swap_mods = want;
             }
-            swap_timer = 0; // 押している間はタイムアウトを止める
+            swap_timer_running = false; // 押している間はタイムアウトを止める
         } else {
-            swap_timer = timer_read() | 1; // 離したらタイムアウト計測開始
+            // 離したらタイムアウト計測開始
+            swap_timer         = timer_read();
+            swap_timer_running = true;
         }
         // ここは return true。QMK の ACT_LMODS がキーコード側の修飾を
         // weak mods で乗せて送ってくれるので、S(A(KC_TAB)) の Shift も
