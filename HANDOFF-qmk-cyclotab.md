@@ -182,6 +182,9 @@ cp -a /home/komai/keyball/qmk_firmware/keyboards/keyball $QMK_HOME/keyboards/key
 cd $QMK_HOME && qmk compile -j 4 -kb keyball/keyball44 -km via
 ```
 
+CI と同じ `ln -s` 方式でも 0.34.5 で認識されることは確認済み
+（最初に symlink で失敗したのは `keyboard.json` リネーム前だったのが原因）。
+
 `Layout macro should not be defined within ".h" files.` は警告で、ビルドは通る
 （レイアウトを keyboard.json に移す DD 化は今回のスコープ外）。
 
