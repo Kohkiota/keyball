@@ -8,12 +8,6 @@ on:
         default: '0.34.5'
         type: string
         required: false
-      # getreuer/qmk-modules is pinned to an exact commit on purpose:
-      # never track main/latest.
-      qmk_modules_version:
-        default: '8c55ac1c5d547d1ff324ae2834b26f2075222c97'
-        type: string
-        required: false
       keyboard:
         type: string
         required: true
@@ -41,13 +35,6 @@ jobs:
       uses: ./.github/actions/checkout-qmk_firmware
       with:
         version: ${{ inputs.qmk_version }}
-
-    - name: Checkout community modules (getreuer)
-      uses: actions/checkout@v4
-      with:
-        repository: getreuer/qmk-modules
-        ref: ${{ inputs.qmk_modules_version }}
-        path: __qmk__/modules/getreuer
 
     - name: Install Python dependencies
       run: |

@@ -41,25 +41,18 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define DYNAMIC_KEYMAP_LAYER_COUNT 6
 
 //////////////////////////////////////////////////////////////////////////////
-// Cyclotab (getreuer/cyclotab community module) — Alt+Tab swapper
+// Swapper (keymap.c)
 //
-// Triggered by A(KC_TAB) (next window) and S(A(KC_TAB)) (previous window),
-// assigned from Remap / VIA.  Alt stays held after the key is released so the
-// taps can be chained, and is released after this timeout (milliseconds).
+// Triggered by six keycodes assigned from Remap / VIA:
+//   A(KC_TAB), S(A(KC_TAB))                     -> Alt is held
+//   G(KC_LEFT), G(KC_RGHT), G(KC_UP), G(KC_DOWN) -> Win is held
 //
-// <<< Cyclotab timeout setting >>>
-#define CYCLOTAB_TIMEOUT 2000
-
-//////////////////////////////////////////////////////////////////////////////
-// Win + arrow swapper (keymap.c)
+// The modifier stays held after the key is released so the taps can be
+// chained, and is released after this timeout (milliseconds) or as soon as
+// any other key is pressed.
 //
-// Triggered by LGUI(KC_LEFT) / LGUI(KC_RGHT) / LGUI(KC_UP) / LGUI(KC_DOWN),
-// assigned from Remap / VIA.  Win stays held after the key is released so the
-// taps can be chained, and is released after this timeout (milliseconds) or as
-// soon as any other key is pressed.
-//
-// <<< Win swapper timeout setting >>>
-#define WINSWAP_TIMEOUT 2000
+// <<< Swapper timeout setting >>>
+#define SWAP_TIMEOUT 2000
 
 //////////////////////////////////////////////////////////////////////////////
 // Combos — mouse buttons from the home row (keymap.c)

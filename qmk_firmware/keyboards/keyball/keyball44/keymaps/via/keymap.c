@@ -97,39 +97,59 @@ layer_state_t layer_state_set_user(layer_state_t state) {
 }
 
 //////////////////////////////////////////////////////////////////////////////
-// Win + 矢印 Swapper
+// Swapper
 //
-// G(KC_LEFT/RGHT/UP/DOWN) の 4 キーを自由に押し替えても GUI を保持し続け、
-// Windows のウィンドウスナップを連続して行えるようにする。
-// GUI は、最後にキーを離してから WINSWAP_TIMEOUT ミリ秒が経過するか、
-// swapper 対象外のキーが押された時点で解放する。
+// 下記 6 キーを 1 つの状態機械で扱い、修飾キーを押しっぱなしのまま連打
+// できるようにする。
+//   Alt 系: A(KC_TAB), S(A(KC_TAB))            … タスク切り替え
+//   Win 系: G(KC_LEFT/RGHT/UP/DOWN)            … ウィンドウスナップ
 //
-// なぜ Cyclotab で代用できないか（stock cyclotab.c を確認済み）:
+// 同じ系の中はもちろん、Alt 系 <-> Win 系をまたいでも、最初の 1 打から
+// 正常に動く。系をまたぐ時は旧 mod を外してから新 mod を握るので、
+// 修飾キーが二重に残ることはない。
+// 保持中の mod は、最後にキーを離してから SWAP_TIMEOUT ミリ秒が経過するか、
+// 対象外のキーが押された時点で解放する（対象外キー自体は消費しない）。
+//
+// stock Cyclotab を使わない理由:
 //   1. セッション継続の判定 is_trigger_keycode() は「現在の active_key」と
 //      「S(active_key)」の 2 つとしか照合しない。CYCLOTAB_KEYS に 4 方向を
 //      並べても、G(KC_LEFT) セッション中の G(KC_RGHT) は別キー扱いになる。
-//   2. 例外的に継続を許す switch の case は素の KC_LEFT/RGHT/UP/DOWN であり、
+//      継続を許す switch の case も素の KC_LEFT/RGHT/UP/DOWN なので、
 //      G(KC_RGHT)=0x084F は KC_RGHT=0x004F と一致しない。
-//   結果、方向を変えた最初の 1 打が release_active() で GUI を解放したうえ
-//   握り潰される（return !pressed）。4 方向の自由往復は構造上不可能。
-//   拡張フックは cyclotab_timeout() のみで、CI は getreuer/qmk-modules を
-//   固定 commit から clone するため cyclotab.c 自体の改造も不可。
-// A(KC_TAB) / S(A(KC_TAB)) の往復は上記 1. の S(active_key) で成立するので、
-// タスク切り替えは stock Cyclotab のまま使う。
-static bool     winswap_active = false;
-static uint16_t winswap_timer  = 0; // 0 = 計測停止（キーを押している間）
+//      → Win 系 4 方向の自由往復は構造上不可能。
+//   2. セッション中に対象外キーを押すと release_active() のうえ
+//      `return !record->event.pressed` で必ず握り潰される。これは
+//      process_record_cyclotab() にハードコードされており、公開 API では
+//      変えられない（cyclotab.h の cyclotab_clear() は宣言のみで実装が無い）。
+//   3. Cyclotab は community module なので process_record_kb/user より先に
+//      走る。これを出し抜けるのは pre_process_record_user だけだが、
+//      そこで全キーを横取りするのは Cyclotab を通さないのと同じ。
+static uint8_t  swap_mods  = 0; // 保持中の mod（0 = セッション無し）
+static uint16_t swap_timer = 0; // 0 = 計測停止（キーを押している間）
 
-static void winswap_release(void) {
-    if (winswap_active) {
-        unregister_mods(MOD_BIT(KC_LGUI));
-        winswap_active = false;
+static uint8_t swap_group(uint16_t keycode) {
+    switch (keycode) {
+        case A(KC_TAB):
+        case S(A(KC_TAB)):
+            return MOD_BIT(KC_LALT);
+        case G(KC_LEFT):
+        case G(KC_RGHT):
+        case G(KC_UP):
+        case G(KC_DOWN):
+            return MOD_BIT(KC_LGUI);
     }
-    winswap_timer = 0;
+    return 0;
+}
+
+static void swap_end(void) {
+    if (swap_mods) {
+        unregister_mods(swap_mods);
+        swap_mods = 0;
+    }
+    swap_timer = 0;
 }
 
 #ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
-#    include "cyclotab.h"
-
 // AML 維持
 //
 // QMK の process_auto_mouse() は switch の先頭で
@@ -145,13 +165,12 @@ static void winswap_release(void) {
 // pointing_device_task_auto_mouse() が毎周期 timer.active を打ち直すため、
 // セッション中は 10 秒が減らず、解放した時点から 10 秒が再スタートする。
 //
-// 掴む条件は「Cyclotab セッション中」または「Win Swapper セッション中」。
-// どちらのセッションも A(KC_TAB)/S(A(KC_TAB))/G(KC_LEFT/RGHT/UP/DOWN) の
-// 6 キーを押した時にしか始まらないので、維持対象は実質この 6 キーだけになる。
-// 素の KC_TAB や素の矢印は対象外（従来どおり AML をリセットする）。
+// セッションは上記 6 キーを押した時にしか始まらないので、維持対象は
+// 実質この 6 キーだけになる。素の KC_TAB や素の矢印は対象外
+// （従来どおり auto_mouse_reset_trigger() で AML をリセットする）。
 //
 // increment / decrement は必ず 1 対 1 に保つ必要があるので、状態が変わった
-// 時だけ呼ぶ。Cyclotab がキーイベントを握り潰しても tracker はずれない。
+// 時だけ呼ぶ。
 static bool aml_held = false;
 
 static void aml_hold(bool on) {
@@ -163,40 +182,39 @@ static void aml_hold(bool on) {
 #endif
 
 void housekeeping_task_user(void) {
-    if (winswap_timer && timer_elapsed(winswap_timer) > WINSWAP_TIMEOUT) {
-        winswap_release();
+    if (swap_timer && timer_elapsed(swap_timer) > SWAP_TIMEOUT) {
+        swap_end();
     }
 #ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
-    aml_hold(winswap_active || cyclotab_active_key() != KC_NO);
+    aml_hold(swap_mods != 0);
 #endif
 }
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
-    // Win + 矢印 Swapper は既存処理より手前で判定する
-    switch (keycode) {
-        case G(KC_LEFT):
-        case G(KC_RGHT):
-        case G(KC_UP):
-        case G(KC_DOWN):
-            if (record->event.pressed) {
-                // 4 方向のどれに押し替えても GUI は握ったまま継続する
-                if (!winswap_active) {
-                    winswap_active = true;
-                    register_mods(MOD_BIT(KC_LGUI));
+    // Swapper は既存処理より手前で判定する
+    uint8_t want = swap_group(keycode);
+    if (want) {
+        if (record->event.pressed) {
+            if (swap_mods != want) {
+                // Alt 系 <-> Win 系 の乗り換え。旧 mod を外してから新 mod を握る
+                if (swap_mods) {
+                    unregister_mods(swap_mods);
                 }
-                winswap_timer = 0;        // 押している間はタイムアウトを止める
-                tap_code(keycode & 0xFF); // GUI は保持したまま矢印だけ送る
-            } else {
-                winswap_timer = timer_read() | 1; // 離したらタイムアウト計測開始
+                register_mods(want);
+                swap_mods = want;
             }
-            return false;
-
-        default:
-            // Swapper 対象外のキーを押したら GUI を解放する（キー自体は通す）
-            if (record->event.pressed) {
-                winswap_release();
-            }
-            break;
+            swap_timer = 0; // 押している間はタイムアウトを止める
+        } else {
+            swap_timer = timer_read() | 1; // 離したらタイムアウト計測開始
+        }
+        // ここは return true。QMK の ACT_LMODS がキーコード側の修飾を
+        // weak mods で乗せて送ってくれるので、S(A(KC_TAB)) の Shift も
+        // 自動で付く。register_mods() で握った Alt / GUI は real mods なので
+        // キーを離す時の del_weak_mods() では消えない。
+        return true;
+    }
+    if (record->event.pressed) {
+        swap_end(); // 対象外キーは通す（消費しない）
     }
 
 #ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
