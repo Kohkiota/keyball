@@ -40,7 +40,7 @@ static pin_t row_pins[PINNUM_ROW] = MATRIX_ROW_PINS;
 static pin_t col_pins[PINNUM_COL] = MATRIX_COL_PINS;
 
 static inline void set_pin_input(pin_t pin) {
-    setPinInputHigh(pin);
+    gpio_set_pin_input_high(pin);
 }
 
 static void set_pins_input(pin_t* pins, uint8_t n) {
@@ -50,12 +50,12 @@ static void set_pins_input(pin_t* pins, uint8_t n) {
 }
 
 static inline void set_pin_output(pin_t pin) {
-    setPinOutput(pin);
-    writePinLow(pin);
+    gpio_set_pin_output(pin);
+    gpio_write_pin_low(pin);
 }
 
 static inline bool get_pin(pin_t pin) {
-    return readPin(pin);
+    return gpio_read_pin(pin);
 }
 
 __attribute__((weak)) void duplex_scan_raw_post_kb(matrix_row_t out_matrix[]) {}

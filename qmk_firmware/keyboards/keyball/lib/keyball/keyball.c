@@ -140,7 +140,11 @@ void keyboard_pre_init_kb(void) {
 }
 #endif
 
-void pointing_device_driver_init(void) {
+// Note: since QMK 0.30.0 pointing_device_driver_init() returns bool.  The
+// return value only feeds pointing_device_get_status(); it does not gate the
+// pointing device task, so report success unconditionally to keep the previous
+// behaviour on ball-less halves.
+bool pointing_device_driver_init(void) {
 #if KEYBALL_MODEL != 46
     keyball.this_have_ball = pmw3360_init();
 #endif
@@ -156,6 +160,7 @@ void pointing_device_driver_init(void) {
 #endif
         pmw3360_cpi_set(CPI_DEFAULT - 1);
     }
+    return true;
 }
 
 uint16_t pointing_device_driver_get_cpi(void) {

@@ -40,12 +40,12 @@ const uint8_t row3_order_data[] = {
 
 static uint8_t peek_matrix_intersection(pin_t out_pin, pin_t in_pin) {
     extern void matrix_io_delay(void);
-    setPinInputHigh(in_pin);
-    setPinOutput(out_pin);
-    writePinLow(out_pin);
+    gpio_set_pin_input_high(in_pin);
+    gpio_set_pin_output(out_pin);
+    gpio_write_pin_low(out_pin);
     wait_us(1);
-    uint8_t pin_state = readPin(in_pin);
-    setPinInputHigh(out_pin);
+    uint8_t pin_state = gpio_read_pin(in_pin);
+    gpio_set_pin_input_high(out_pin);
     matrix_io_delay();
     return pin_state;
 }

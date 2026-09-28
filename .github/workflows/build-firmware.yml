@@ -5,7 +5,7 @@ on:
   workflow_call:
     inputs:
       qmk_version:
-        default: '0.22.14'
+        default: '0.34.5'
         type: string
         required: false
       keyboard:
@@ -33,6 +33,8 @@ jobs:
 
     - name: Checkout qmk_firmware
       uses: ./.github/actions/checkout-qmk_firmware
+      with:
+        version: ${{ inputs.qmk_version }}
 
     - name: Install Python dependencies
       run: |
@@ -46,6 +48,9 @@ jobs:
         from pathlib import Path
 
         math_py = Path("__qmk__/lib/python/qmk/math.py")
+        if not math_py.exists():
+            # Removed upstream (QMK no longer ships qmk/math.py); nothing to patch.
+            raise SystemExit(0)
         text = math_py.read_text()
 
         if "ast.Num" in text and "Python 3.14 compatibility" not in text:
