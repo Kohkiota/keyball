@@ -140,10 +140,15 @@ void keyboard_pre_init_kb(void) {
 }
 #endif
 
-// Note: since QMK 0.30.0 pointing_device_driver_init() returns bool.  The
-// return value only feeds pointing_device_get_status(); it does not gate the
-// pointing device task, so report success unconditionally to keep the previous
-// behaviour on ball-less halves.
+// Note: since QMK 0.30.0 pointing_device_driver_init() returns bool.  Return
+// true unconditionally, including on a half with no ball.
+//
+// The return value does gate the pointing device task: pointing_device_init()
+// stores it as POINTING_DEVICE_STATUS_SUCCESS / _INIT_FAILED, and
+// pointing_device_task() bails out early while the status is not _SUCCESS
+// (pointing_device.c:186 and :314 in 0.34.5).  Reporting failure on a
+// ball-less half would therefore stop its task, so keep returning true and let
+// keyball.this_have_ball decide what the task actually does.
 bool pointing_device_driver_init(void) {
 #if KEYBALL_MODEL != 46
     keyball.this_have_ball = pmw3360_init();
