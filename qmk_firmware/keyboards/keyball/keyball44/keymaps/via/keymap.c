@@ -99,14 +99,16 @@ layer_state_t layer_state_set_user(layer_state_t state) {
 //////////////////////////////////////////////////////////////////////////////
 // Swapper
 //
-// 下記 6 キーを 1 つの状態機械で扱い、修飾キーを押しっぱなしのまま連打
+// 下記 10 キーを 1 つの状態機械で扱い、修飾キーを押しっぱなしのまま連打
 // できるようにする。
-//   Alt 系: A(KC_TAB), S(A(KC_TAB))            … タスク切り替え
-//   Win 系: G(KC_LEFT/RGHT/UP/DOWN)            … ウィンドウスナップ
+//   Alt 系:  A(KC_TAB), S(A(KC_TAB))           … タスク切り替え
+//            A(KC_LEFT), A(KC_RGHT)            … ブラウザの戻る / 進む
+//   Win 系:  G(KC_LEFT/RGHT/UP/DOWN)           … ウィンドウスナップ
+//   Ctrl 系: C(KC_TAB), S(C(KC_TAB))           … ブラウザのタブ移動
 //
-// 同じ系の中はもちろん、Alt 系 <-> Win 系をまたいでも、最初の 1 打から
-// 正常に動く。系をまたぐ時は旧 mod を外してから新 mod を握るので、
-// 修飾キーが二重に残ることはない。
+// 同じ系の中はもちろん、Alt 系 <-> Win 系 <-> Ctrl 系をまたいでも、最初の
+// 1 打から正常に動く。系をまたぐ時は旧 mod を外してから新 mod を握るので、
+// Alt+Ctrl や Alt+Win のように修飾キーが二重に残ることはない。
 // 保持中の mod は、最後にキーを離してから SWAP_TIMEOUT ミリ秒が経過するか、
 // 対象外のキーが押された時点で解放する（対象外キー自体は消費しない）。
 //
@@ -135,14 +137,22 @@ static bool swap_timer_running = false;
 
 static uint8_t swap_group(uint16_t keycode) {
     switch (keycode) {
+        // Alt 系
         case A(KC_TAB):
         case S(A(KC_TAB)):
+        case A(KC_LEFT):
+        case A(KC_RGHT):
             return MOD_BIT(KC_LALT);
+        // Win 系
         case G(KC_LEFT):
         case G(KC_RGHT):
         case G(KC_UP):
         case G(KC_DOWN):
             return MOD_BIT(KC_LGUI);
+        // Ctrl 系
+        case C(KC_TAB):
+        case S(C(KC_TAB)):
+            return MOD_BIT(KC_LCTL);
     }
     return 0;
 }
@@ -153,6 +163,35 @@ static void swap_end(void) {
         swap_mods = 0;
     }
     swap_timer_running = false;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// スクロールセッション（Kb7 = SCRL_MO の拡張）
+//
+// Kb6 = SCRL_TO の完全トグルは一切変更しない。Kb7 だけを拡張する。
+//
+// 従来の Kb7 は「押している間だけスクロール」。ここではそれに加えて、
+// 実際にスクロール入力が出たあとに Kb7 を離しても、指を離したまま
+// SCROLL_SESSION_TIMEOUT ミリ秒だけスクロールを続けられるようにする。
+// スクロール入力があるたびタイムアウトを打ち直すので、途中で少し読んでから
+// 再びボールを回してもセッションは継続する。
+//
+// セッション開始条件を「Kb7 を押した」ではなく「Kb7 を押している間に実際に
+// スクロール入力が出た」にしてあるので、通常のポインタ移動と混同しない。
+// 検出は pointing_device_task_user() で rep.h / rep.v を見る。keyball は
+// pointing_device_task_kb() を定義していないため、この関数には
+// pointing_device_driver_get_report() がスクロール量を入れた後のレポートが
+// 渡ってくる（pointing_device.c:343 -> :364）。h / v はスクロールモード中しか
+// 非 0 にならないので、ポインタ移動では発火しない。
+static bool     scrl_mo_held        = false; // Kb7 を物理的に押している
+static bool     scrl_session_active = false; // セッション継続中（タイマー稼働中）
+static uint16_t scrl_session_timer  = 0;     // swap_timer と同じ理由で sentinel に 0 を使わない
+static bool     scrl_toggled        = false; // Kb6 の完全トグルが ON か（記録のみ）
+
+// セッション終了時にスクロールを落として良いかどうか。
+// Kb6 の完全トグル中と、レイヤー 3 の自動スクロール中は触らない。
+static bool scrl_session_may_release(void) {
+    return !scrl_toggled && get_highest_layer(layer_state) != 3;
 }
 
 #ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
@@ -171,8 +210,8 @@ static void swap_end(void) {
 // pointing_device_task_auto_mouse() が毎周期 timer.active を打ち直すため、
 // セッション中は 10 秒が減らず、解放した時点から 10 秒が再スタートする。
 //
-// セッションは上記 6 キーを押した時にしか始まらないので、維持対象は
-// 実質この 6 キーだけになる。素の KC_TAB や素の矢印は対象外
+// セッションは上記 10 キーを押した時にしか始まらないので、維持対象は
+// 実質この 10 キーだけになる。素の KC_TAB や素の矢印は対象外
 // （従来どおり auto_mouse_reset_trigger() で AML をリセットする）。
 //
 // increment / decrement は必ず 1 対 1 に保つ必要があるので、状態が変わった
@@ -185,15 +224,58 @@ static void aml_hold(bool on) {
         auto_mouse_keyevent(on);
     }
 }
+
+// AML 上で押しても AML が解除されないキー。keyball.c の is_mouse_record_kb()
+// から呼ばれる（同関数は SCRL_MO を先に true にしたうえでここへ落ちてくる）。
+//
+// これが無いと、これらの素のキーコードは process_auto_mouse() の default: に
+// 落ちて auto_mouse_reset_trigger() が layer_off(AML) を実行する。その後
+// process_record_handler() -> store_or_get_action() が press 時に
+// layer_switch_get_layer() で「AML を落とした後の」layer_state を読むため
+// （action.c:293 -> :327, action_layer.c:327）、レイヤー 0 のキーとして
+// 解決されてしまう。AML 上の PageUp が base の文字になるのはこれが原因。
+//
+// true を返すと auto_mouse_reset_trigger() の代わりに auto_mouse_keyevent()
+// が呼ばれ、layer_off されず tracker が立つので、押している間は AML が維持され、
+// 離せば通常の 10 秒タイマーへ戻る。
+//
+// ※ ここに他の通常キーを増やさないこと。増やすとそのキーで AML を抜けられなくなる。
+bool is_mouse_record_user(uint16_t keycode, keyrecord_t *record) {
+    switch (keycode) {
+        case KC_PGUP:
+        case KC_PGDN:
+        case KC_HOME:
+        case KC_END:
+            return true;
+    }
+    return false;
+}
 #endif
 
 void housekeeping_task_user(void) {
     if (swap_timer_running && timer_elapsed(swap_timer) > SWAP_TIMEOUT) {
         swap_end();
     }
+    // スクロールセッションのタイムアウト。Kb7 を押している間は従来の
+    // momentary 動作なので計測しない。
+    if (scrl_session_active && !scrl_mo_held && timer_elapsed(scrl_session_timer) > SCROLL_SESSION_TIMEOUT) {
+        scrl_session_active = false;
+        if (scrl_session_may_release()) {
+            keyball_set_scroll_mode(false);
+        }
+    }
 #ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
-    aml_hold(swap_mods != 0);
+    aml_hold(swap_mods != 0 || scrl_session_active);
 #endif
+}
+
+// スクロール入力の検出とセッションの延長。
+report_mouse_t pointing_device_task_user(report_mouse_t rep) {
+    if ((rep.h != 0 || rep.v != 0) && keyball_get_scroll_mode() && (scrl_mo_held || scrl_session_active)) {
+        scrl_session_active = true;
+        scrl_session_timer  = timer_read();
+    }
+    return rep;
 }
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
@@ -225,6 +307,28 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
         swap_end(); // 対象外キーは通す（消費しない）
     }
 
+    // SCRL_MO（Kb 7）を横取りしてスクロールセッションを実装する。
+    // keyball 標準の処理は `keyball_set_scroll_mode(record->event.pressed)`
+    // だけなので、押下側は同じ動作をこちらで行う。離した側だけを変える。
+    if (keycode == SCRL_MO) {
+        if (record->event.pressed) {
+            scrl_mo_held        = true;
+            scrl_session_active = false; // 新しい操作の開始
+            keyball_set_scroll_mode(true);
+        } else {
+            scrl_mo_held = false;
+            if (scrl_session_active) {
+                // スクロール実績あり → 指を離してもセッションを継続し、
+                // ここから SCROLL_SESSION_TIMEOUT を数え直す
+                scrl_session_timer = timer_read();
+            } else if (scrl_session_may_release()) {
+                // 一度もスクロールしていない → 従来どおり即解除
+                keyball_set_scroll_mode(false);
+            }
+        }
+        return false; // Keyball標準の SCRL_MO 処理には渡さない
+    }
+
 #ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
     // SCRL_TO（Kb 6）を横取りして、スクロールトグルと AML（Auto Mouse Layer）の
     // レイヤー固定を連動させる。
@@ -235,6 +339,12 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
         bool next = !keyball_get_scroll_mode();
 
         keyball_set_scroll_mode(next);
+
+        // 完全トグルの状態を記録するだけ（既存の挙動は変えない）。
+        // スクロールセッションのタイムアウトがこれを見て、トグル ON 中は
+        // 勝手にスクロールを解除しないようにする。
+        scrl_toggled        = next;
+        scrl_session_active = false;
 
         if (next) {
             // スクロールON：レイヤー固定（未固定なら固定する）
