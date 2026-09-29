@@ -43,16 +43,36 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //////////////////////////////////////////////////////////////////////////////
 // Swapper (keymap.c)
 //
-// Triggered by six keycodes assigned from Remap / VIA:
-//   A(KC_TAB), S(A(KC_TAB))                     -> Alt is held
-//   G(KC_LEFT), G(KC_RGHT), G(KC_UP), G(KC_DOWN) -> Win is held
+// Triggered by ten keycodes assigned from Remap / VIA:
+//   A(KC_TAB), S(A(KC_TAB))                      -> Alt is held (task switch)
+//   A(KC_LEFT), A(KC_RGHT)                       -> Alt is held (browser back/fwd)
+//   G(KC_LEFT), G(KC_RGHT), G(KC_UP), G(KC_DOWN) -> Win is held (window snap)
+//   C(KC_TAB), S(C(KC_TAB))                      -> Ctrl is held (browser tabs)
 //
 // The modifier stays held after the key is released so the taps can be
 // chained, and is released after this timeout (milliseconds) or as soon as
-// any other key is pressed.
+// any other key is pressed.  Moving between the Alt / Win / Ctrl groups swaps
+// the held modifier instead of stacking them.
 //
 // <<< Swapper timeout setting >>>
 #define SWAP_TIMEOUT 2000
+
+//////////////////////////////////////////////////////////////////////////////
+// Scroll session (keymap.c) -- Kb7 / SCRL_MO only
+//
+// Kb6 / SCRL_TO keeps its plain on/off toggle and is not affected by this.
+//
+// Kb7 is momentary as before, but once actual scroll input has happened the
+// scroll mode survives releasing the key, so scrolling can continue with the
+// finger off Kb7.  Every scroll input restarts this timeout (milliseconds);
+// when it expires with no scroll input, scroll mode is switched off and the
+// auto mouse layer goes back to its normal 10 second countdown.
+//
+// Raise it to keep scrolling alive through longer pauses, lower it to drop
+// back to the pointer sooner.
+//
+// <<< Scroll session timeout setting >>>
+#define SCROLL_SESSION_TIMEOUT 2000
 
 //////////////////////////////////////////////////////////////////////////////
 // Combos — mouse buttons from the home row (keymap.c)
